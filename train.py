@@ -147,10 +147,10 @@ if __name__ == '__main__':
         'learning_rate': learning_rate,
         'shuffle': True
     }
-    train_data_folder = ""
-    train_annotation_file = ""
-    validation_data_folder = ""
-    validation_annotation_file = ""
+    train_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
+    train_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/train.tsv"
+    validation_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
+    validation_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/dev.tsv"
     save_path = ""
     os.mkdir(save_path)
     with open(save_path+'hyperparameters.json', 'w') as f:

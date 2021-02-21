@@ -26,10 +26,10 @@ class AudioDataset(Dataset):
 
         tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base-960h")
 
-        audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 0])
+        audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])
         audio, _ = sf.read(audio_file_name)
         input_values = tokenizer(audio, padding=True, return_tensors="pt").input_values
-        annotation = self.transcriptions.iloc[idx, 1:]
+        annotation = self.transcriptions.iloc[idx, 2]
         sample = {'audio': input_values, 'annotation': annotation}
 
         return sample
