@@ -21,20 +21,19 @@ from model import ASR_CTC
 from data import AudioDataset
 
 
-def validate(model, criterion, epoch, epochs, iteration, iterations, data_loader_valid, save_path, train_loss,
+def validate(model, criterion, epoch, epochs, validation_generator, save_path, train_loss,
              best_val_loss, best_model_path):
     val_losses = []
     val_accs = []
     val_f1s = []
 
-    for inputs, labels in tqdm(data_loader_valid, total=len(data_loader_valid)):
+    for inputs, labels in tqdm(validation_generator, total=len(validation_generator)):
         with torch.no_grad():
             inputs, labels = inputs.cuda(), labels.cuda()
             output = model(inputs)
             val_loss = criterion(output, labels)
             val_losses.append(val_loss.cpu().data.numpy())
 
-            #y_pred = output.argmax(dim=1).cpu().data.numpy().flatten()
             y_pred = torch.argmax(model(inputs).logits, dim=-1).cpu().data.numpy().flatten()
             y_true = labels.cpu().data.numpy().flatten()
             val_accs.append(metrics.accuracy_score(y_true, y_pred))
@@ -46,7 +45,6 @@ def validate(model, criterion, epoch, epochs, iteration, iterations, data_loader
 
     improved = ''
 
-    # model_path = '{}model_{:02d}{:02d}'.format(save_path, epoch, iteration)
     model_path = save_path+'model'
     torch.save(model.state_dict(), model_path)
     if val_loss < best_val_loss:
@@ -59,15 +57,14 @@ def validate(model, criterion, epoch, epochs, iteration, iterations, data_loader
     progress_path = save_path+'progress.csv'
     if not os.path.isfile(progress_path):
         with open(progress_path, 'w') as f:
-            f.write('time;epoch;iteration;training loss;loss;accuracy;'+f1_cols+'\n')
+            f.write('time;epoch;training loss;loss;accuracy;'+f1_cols+'\n')
 
     f1_vals = ';'.join(['{:.4f}'.format(val) for val in val_f1])
 
     with open(progress_path, 'a') as f:
-        f.write('{};{};{};{:.4f};{:.4f};{:.4f};{}\n'.format(
+        f.write('{};{};{:.4f};{:.4f};{:.4f};{}\n'.format(
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             epoch+1,
-            iteration,
             train_loss,
             val_loss,
             val_acc,
@@ -75,7 +72,6 @@ def validate(model, criterion, epoch, epochs, iteration, iterations, data_loader
             ))
 
     print("Epoch: {}/{}".format(epoch+1, epochs),
-          "Iteration: {}/{}".format(iteration, iterations),
           "Loss: {:.4f}".format(train_loss),
           "Val Loss: {:.4f}".format(val_loss),
           "Acc: {:.4f}".format(val_acc),
@@ -86,8 +82,7 @@ def validate(model, criterion, epoch, epochs, iteration, iterations, data_loader
 
 def train(model, optimizer, criterion, epochs, training_generator, validation_generator, save_path, best_val_loss=1e9):
 
-    print_every = len(data_loader_train)//((iterations+1))
-    clip = 5
+    print_every = len(training_generator)
     best_model_path = None
     model.train()
     pbar = tqdm(total=print_every)
@@ -95,7 +90,6 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
     for e in range(epochs):
 
         counter = 1
-        iteration = 1
 
         for inputs, labels in training_generator:
 
@@ -116,16 +110,15 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
 
                 pbar.close()
                 model.eval()
-                best_val_loss, best_model_path = validate(model, criterion, e, epochs, iteration, iterations, validation_generator,
+                best_val_loss, best_model_path = validate(model, criterion, e, epochs, validation_generator,
                     save_path, train_loss, best_val_loss, best_model_path)
                 model.train()
                 pbar = tqdm(total=print_every)
-                iteration += 1
             counter += 1
 
         pbar.close()
         model.eval()
-        best_val_loss, best_model_path = validate(model, criterion, e, epochs, iteration, iterations, validation_generator,
+        best_val_loss, best_model_path = validate(model, criterion, e, epochs, validation_generator,
             save_path, train_loss, best_val_loss, best_model_path)
         model.train()
         if e < epochs-1:
@@ -173,4 +166,4 @@ if __name__ == '__main__':
     optimizer = optim.AdamW(wav2vec_model.parameters(), lr=learning_rate)
     criterion = nn.CTCLoss()
     wav2vec_model, optimizer, best_val_loss = train(wav2vec_model, optimizer, criterion, epochs_all,
-        data_loader_train, data_loader_valid, save_path)
+        training_generator, validation_generator, save_path)
