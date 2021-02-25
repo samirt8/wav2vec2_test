@@ -144,7 +144,7 @@ if __name__ == '__main__':
     train_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/train.tsv"
     validation_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
     validation_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/dev.tsv"
-    save_path = ""
+    save_path = "/media/nas/samir-data/wav2vec2_models"
     os.mkdir(save_path)
     with open(save_path+'hyperparameters.json', 'w') as f:
         json.dump(hyperparameters, f)
