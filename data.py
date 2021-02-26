@@ -1,23 +1,28 @@
-from os import path
+import os
+import unidecode
 import numpy as np
+import pandas as pd
 import torch
 import array
-from torch.utils.data import TensorDataset, DataLoader
-#import soundfile as sf
+from torch.utils.data import Dataset, DataLoader
+import soundfile as sf
 from pydub import AudioSegment
+from keras.preprocessing.sequence import pad_sequences
 from transformers import Wav2Vec2Tokenizer
 
 
 class AudioDataset(Dataset):
     """Audio dataset"""
 
-    def __init__(self, transcription_file, root_dir):
+    def __init__(self, transcription_file, root_dir, MAX_LEN):
         """
         :param transcription_file: Path to the text transcription.
         :param root_dir: Directory containing audio files.
+        :param MAX_LEN: Maximum number of characters for the output. We trunk or pad output to this length 
         """
-        self.transcriptions = pd.read_csv(transcription_file)
+        self.transcriptions = pd.read_csv(transcription_file, sep="\t")
         self.root_dir = root_dir
+        self.MAX_LEN = MAX_LEN
         self.tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base-960h")
 
     def __len__(self):
@@ -29,13 +34,22 @@ class AudioDataset(Dataset):
         We need to uppercase the text, replace space with | and remove punctuation except '
         """
         text = text.upper()
+        # remove accents
+        text = unidecode.unidecode(text) 
+        # output word
         output = ""
+        # output vector
+        vect_output = []
         for char in text:
             if char in list(self.tokenizer.get_vocab().keys()):
                 output += char
             elif char == " ":
                 output += "|"
-        return output
+        for char in output:
+            vect_output.append(self.tokenizer.get_vocab()[char])
+        vect_output = np.squeeze(pad_sequences([vect_output], maxlen=self.MAX_LEN, dtype="long", value=0, truncating="post", padding="post"), 0)
+        return vect_output
+
 
 
     def __getitem__(self, idx):
@@ -46,15 +60,15 @@ class AudioDataset(Dataset):
 
         audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])
         audio_file_name_mp3 = audio_file_name+".mp3"
-        audio_file_name_wav = audio_file_name+".wav"
+        audio_file_name_flac = audio_file_name+".flac"
         # convert mp3 to wav
         sound = AudioSegment.from_mp3(audio_file_name_mp3)
-        sound.export(audio_file_name_wav, format="wav")
-        audio, _ = sf.read(audio_file_name_wav)
-        os.remove(audio_file_name_wav)
-        input_values = tokenizer(audio, padding=True, return_tensors="pt").input_values
+        sound.export(audio_file_name_flac, format="flac")
+        audio, _ = sf.read(audio_file_name_flac)
+        os.remove(audio_file_name_flac)
+        input_values = np.squeeze(tokenizer(audio, padding="longest", return_tensors="pt").input_values, 0)
         annotation = self.transcriptions.iloc[idx, 2]
 
-        sample = {'audio': input_values, 'annotation': clean_annotation(annotation)}
+        sample = {'audio': input_values, 'annotation': self.clean_annotation(annotation)}
 
         return sample

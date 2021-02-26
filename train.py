@@ -24,61 +24,54 @@ from data import AudioDataset
 def validate(model, criterion, epoch, epochs, validation_generator, save_path, train_loss,
              best_val_loss, best_model_path):
     val_losses = []
-    val_accs = []
-    val_f1s = []
-
-    for inputs, labels in tqdm(validation_generator, total=len(validation_generator)):
+    for inputs in tqdm(validation_generator, total=len(validation_generator)):
         with torch.no_grad():
-            inputs, labels = inputs.cuda(), labels.cuda()
+            print("input : ", inputs["audio"])
+            inputs, labels = inputs["audio"].cuda(), inputs["annotation"].cuda()
             output = model(inputs)
-            val_loss = criterion(output, labels)
+            output = output.view(-1, batch_size, nb_labels)
+            print("output : ", output)
+
+            output_length = torch.full(size=(batch_size,), fill_value=output.shape[0], dtype=torch.long)
+            target_length = torch.randint(low=MAX_LEN-5, high=MAX_LEN, size=(batch_size,), dtype=torch.long)
+            val_loss = criterion(output, labels, output_length, target_length)
             val_losses.append(val_loss.cpu().data.numpy())
 
-            y_pred = torch.argmax(model(inputs).logits, dim=-1).cpu().data.numpy().flatten()
+            y_pred = torch.argmax(model(inputs), dim=-1).cpu().data.numpy().flatten()
             y_true = labels.cpu().data.numpy().flatten()
-            val_accs.append(metrics.accuracy_score(y_true, y_pred))
-            val_f1s.append(metrics.f1_score(y_true, y_pred, average=None, labels=label_vals))
+
+            print("Ground truth : ", tokenizer.decode(y_true))
+            print("Prediction : ", tokenizer.decode(y_pred))
 
     val_loss = np.mean(val_losses)
-    val_acc = np.mean(val_accs)
-    val_f1 = np.array(val_f1s).mean(axis=0)
 
     improved = ''
 
-    model_path = save_path+'model'
+    model_path = save_path+'/model'
     torch.save(model.state_dict(), model_path)
     if val_loss < best_val_loss:
         improved = '*'
         best_val_loss = val_loss
         best_model_path = model_path
 
-    f1_cols = ';'.join(['f1_'+key for key in label_keys])
 
-    progress_path = save_path+'progress.csv'
-    if not os.path.isfile(progress_path):
-        with open(progress_path, 'w') as f:
-            f.write('time;epoch;training loss;loss;accuracy;'+f1_cols+'\n')
-
-    f1_vals = ';'.join(['{:.4f}'.format(val) for val in val_f1])
-
+    progress_path = save_path+'/progress.csv'
     with open(progress_path, 'a') as f:
-        f.write('{};{};{:.4f};{:.4f};{:.4f};{}\n'.format(
+        f.write('{};{};{:.4f};{:.4f}\n'.format(
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             epoch+1,
             train_loss,
-            val_loss,
-            val_acc,
-            f1_vals
+            val_loss
             ))
 
     print("Epoch: {}/{}".format(epoch+1, epochs),
           "Loss: {:.4f}".format(train_loss),
           "Val Loss: {:.4f}".format(val_loss),
-          "Acc: {:.4f}".format(val_acc),
-          "F1: {}".format(f1_vals),
           improved)
 
     return best_val_loss, best_model_path
+
+
 
 def train(model, optimizer, criterion, epochs, training_generator, validation_generator, save_path, best_val_loss=1e9):
 
@@ -91,13 +84,16 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
 
         counter = 1
 
-        for inputs, labels in training_generator:
+        for inputs in training_generator:
 
-            inputs, labels = inputs.cuda(), labels.cuda()
+            inputs, labels = inputs["audio"].cuda(), inputs["annotation"].cuda()
             inputs.requires_grad = False
             labels.requires_grad = False
             output = model(inputs)
-            loss = criterion(output, labels)
+            output = output.view(-1, batch_size, nb_labels)
+            output_length = torch.full(size=(batch_size,), fill_value=output.shape[0], dtype=torch.long)
+            target_length = torch.randint(low=MAX_LEN-5, high=MAX_LEN, size=(batch_size,), dtype=torch.long)
+            loss = criterion(output, labels, output_length, target_length)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -110,8 +106,7 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
 
                 pbar.close()
                 model.eval()
-                best_val_loss, best_model_path = validate(model, criterion, e, epochs, validation_generator,
-                    save_path, train_loss, best_val_loss, best_model_path)
+                best_val_loss, best_model_path = validate(model, criterion, e, epochs, validation_generator, save_path, train_loss, best_val_loss, best_model_path)
                 model.train()
                 pbar = tqdm(total=print_every)
             counter += 1
@@ -132,38 +127,38 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
 if __name__ == '__main__':
 
     epochs = 1
-    batch_size = 128
-    learning_rate_top = 3e-4
+    batch_size = 1
+    learning_rate = 3e-4
+    MAX_LEN = 150
     hyperparameters = {
-        'epochs': epochs,
         'batch_size': batch_size,
-        'learning_rate': learning_rate,
         'shuffle': True
     }
     train_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
-    train_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/train.tsv"
+    train_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/subset_train.tsv"
     validation_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
-    validation_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/dev.tsv"
+    validation_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/subset_dev.tsv"
     save_path = "/media/nas/samir-data/wav2vec2_models"
-    os.mkdir(save_path)
-    with open(save_path+'hyperparameters.json', 'w') as f:
+    #os.mkdir(save_path)
+    with open(os.path.join(save_path,'hyperparameters.json'), 'w') as f:
         json.dump(hyperparameters, f)
 
     #Generators
-    training_set = AudioDataset(train_data_folder, annotation_file)
+    training_set = AudioDataset(train_annotation_file, train_data_folder, MAX_LEN)
     training_generator = torch.utils.data.DataLoader(training_set, **hyperparameters)
 
-    validation_set = AudioDataset(train_data_folder, annotation_file)
+    validation_set = AudioDataset(validation_annotation_file, validation_data_folder, MAX_LEN)
     validation_generator = torch.utils.data.DataLoader(validation_set, **hyperparameters)
 
     print('LOAD TOKENIZER...')
     tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base-960h")
+    nb_labels = len(tokenizer.get_vocab())
 
     print('INITIALIZING MODEL...')
-    wav2vec_model = nn.DataParallel(ASR_CTC().cuda())
+    wav2vec2_model = nn.DataParallel(ASR_CTC().cuda())
 
     print('TRAINING ALL LAYER...')
-    optimizer = optim.AdamW(wav2vec_model.parameters(), lr=learning_rate)
+    optimizer = optim.AdamW(wav2vec2_model.parameters(), lr=learning_rate)
     criterion = nn.CTCLoss()
-    wav2vec_model, optimizer, best_val_loss = train(wav2vec_model, optimizer, criterion, epochs_all,
+    wav2vec2_model, optimizer, best_val_loss = train(wav2vec2_model, optimizer, criterion, epochs,
         training_generator, validation_generator, save_path)
