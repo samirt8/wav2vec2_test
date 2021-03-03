@@ -1,4 +1,5 @@
 import os
+import subprocess
 import unidecode
 import numpy as np
 import pandas as pd
@@ -23,10 +24,12 @@ class AudioDataset(Dataset):
         self.transcriptions = pd.read_csv(transcription_file, sep="\t")
         self.root_dir = root_dir
         self.MAX_LEN = MAX_LEN
-        self.tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base-960h")
+        self.tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base")
+
 
     def __len__(self):
         return len(self.transcriptions)
+
 
     def clean_annotation(self, text):
         """
@@ -51,24 +54,28 @@ class AudioDataset(Dataset):
         return vect_output
 
 
-
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base-960h")
-
+        tokenizer = self.tokenizer
+        
+        # temp for english
+        #root_dir = os.path.dirname(self.root_dir)
         audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])
         audio_file_name_mp3 = audio_file_name+".mp3"
-        audio_file_name_flac = audio_file_name+".flac"
+        audio_file_name_wav = audio_file_name+".wav"
+        #audio_file_name_mp3 = audio_file_name
+        #audio_file_name_wav = audio_file_name[0:-3]+"wav"
         # convert mp3 to wav
         sound = AudioSegment.from_mp3(audio_file_name_mp3)
-        sound.export(audio_file_name_flac, format="flac")
-        audio, _ = sf.read(audio_file_name_flac)
-        os.remove(audio_file_name_flac)
-        input_values = np.squeeze(tokenizer(audio, padding="longest", return_tensors="pt").input_values, 0)
+        sound = sound.set_frame_rate(16000)
+        sound.export(audio_file_name_wav, format="wav")
+        audio, _ = sf.read(audio_file_name_wav)
+        os.remove(audio_file_name_wav)
+        input_values = tokenizer(audio, max_length=350000, padding="max_length", return_tensors="pt").input_values
+        input_values = torch.squeeze(input_values, 0)
         annotation = self.transcriptions.iloc[idx, 2]
 
         sample = {'audio': input_values, 'annotation': self.clean_annotation(annotation)}
-
         return sample
