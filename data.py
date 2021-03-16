@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import unidecode
 import numpy as np
@@ -9,7 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 import soundfile as sf
 from pydub import AudioSegment
 from keras.preprocessing.sequence import pad_sequences
-from transformers import Wav2Vec2Tokenizer
+from transformers import Wav2Vec2Tokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
 
 
 class AudioDataset(Dataset):
@@ -36,21 +37,30 @@ class AudioDataset(Dataset):
         Function to clean annotation text
         We need to uppercase the text, replace space with | and remove punctuation except '
         """
-        text = text.upper()
+
+        chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\“\%\‘\”\�]'
+        text = re.sub(chars_to_ignore_regex, '', text).upper()
+        #text = text.upper()
         # remove accents
-        text = unidecode.unidecode(text) 
+        #text = unidecode.unidecode(text)
+        #text = text.encode().decode("latin-1", "ignore")
+
+        #chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\“\%\‘\”\�]'
+        #text = re.sub(chars_to_ignore_regex, '', text).lower()
+
         # output word
         output = ""
         # output vector
         vect_output = []
         for char in text:
-            if char in list(self.tokenizer.get_vocab().keys()):
-                output += char
-            elif char == " ":
+            if char == " ":
                 output += "|"
+            else:
+                output += char
         for char in output:
-            vect_output.append(self.tokenizer.get_vocab()[char])
-        vect_output = np.squeeze(pad_sequences([vect_output], maxlen=self.MAX_LEN, dtype="long", value=0, truncating="post", padding="post"), 0)
+            vect_output.append(self.tokenizer.convert_tokens_to_ids(char))
+        vect_output = torch.tensor(vect_output)
+        #vect_output = np.squeeze(pad_sequences([vect_output], maxlen=self.MAX_LEN, dtype="long", value=0, truncating="post", padding="post"), 0)
         return vect_output
 
 
@@ -59,14 +69,14 @@ class AudioDataset(Dataset):
             idx = idx.tolist()
 
         tokenizer = self.tokenizer
-        
+        #feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0, do_normalize=True, return_attention_mask=True)
+        #processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
+
         # temp for english
         #root_dir = os.path.dirname(self.root_dir)
         audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])
         audio_file_name_mp3 = audio_file_name+".mp3"
         audio_file_name_wav = audio_file_name+".wav"
-        #audio_file_name_mp3 = audio_file_name
-        #audio_file_name_wav = audio_file_name[0:-3]+"wav"
         # convert mp3 to wav
         sound = AudioSegment.from_mp3(audio_file_name_mp3)
         sound = sound.set_frame_rate(16000)
@@ -75,7 +85,8 @@ class AudioDataset(Dataset):
         os.remove(audio_file_name_wav)
         input_values = tokenizer(audio, max_length=350000, padding="max_length", return_tensors="pt").input_values
         input_values = torch.squeeze(input_values, 0)
-        annotation = self.transcriptions.iloc[idx, 2]
+        #input_values = processor.pad(audio, padding=True, max_length=350000, return_tensors="pt").input_values
+        annotation = self.clean_annotation(self.transcriptions.iloc[idx, 2])
 
-        sample = {'audio': input_values, 'annotation': self.clean_annotation(annotation)}
+        sample = {'audio': input_values, 'annotation': annotation}
         return sample

@@ -99,7 +99,7 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
 
             output1 = output.view(-1, batch_size, nb_labels)
             output_lengths = torch.full(size=(batch_size,), fill_value=output1.shape[0], dtype=torch.long)
-            labels_lengths = torch.randint(low=MAX_LEN-5, high=MAX_LEN, size=(batch_size,), dtype=torch.long)
+            labels_lengths = torch.randint(low=y_true.shape[0]-5, high=y_true.shape[0], size=(batch_size,), dtype=torch.long)
             loss = criterion(output1, labels, output_lengths, labels_lengths)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -136,7 +136,7 @@ if __name__ == '__main__':
 
     epochs = 1
     batch_size = 1
-    MAX_LEN = 64
+    MAX_LEN = 32
     learning_rate = 5e-4
     hyperparameters = {
         'batch_size': batch_size,
@@ -159,22 +159,23 @@ if __name__ == '__main__':
     validation_generator = torch.utils.data.DataLoader(validation_set, **hyperparameters)
 
     print('LOAD TOKENIZER...')
-    tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base")
+    tokenizer = Wav2Vec2Tokenizer("vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
+    #tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base")
     nb_labels = len(tokenizer.get_vocab())
 
     print('INITIALIZING MODEL...')
     wav2vec2_model = nn.DataParallel(ASR_CTC().cuda())
 
     print('TRAINING ALL LAYER...')
-    for name, param in wav2vec2_model.named_parameters():
-        if "encoder" in name:
-            param.requires_grad = False
+    #for name, param in wav2vec2_model.named_parameters():
+    #    if "encoder" in name:
+    #        param.requires_grad = False
     #    elif "classifier" in name:
     #        print("classifier : ", name)
     #        param.requires_grad = True
-        else:
-            param.requires_grad = False
+    #    else:
+    #        param.requires_grad = False
     optimizer = optim.AdamW(wav2vec2_model.parameters(), lr=learning_rate)
-    criterion = nn.CTCLoss(reduction="none", blank=4)
+    criterion = nn.CTCLoss(reduction="mean", blank=4)
     wav2vec2_model, optimizer, best_val_loss = train(wav2vec2_model, optimizer, criterion, epochs,
         training_generator, validation_generator, save_path)
