@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import subprocess
 import unidecode
@@ -8,9 +9,10 @@ import torch
 import array
 from torch.utils.data import Dataset, DataLoader
 import soundfile as sf
+import torchaudio
 from pydub import AudioSegment
-from keras.preprocessing.sequence import pad_sequences
-from transformers import Wav2Vec2Tokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
+#from keras.preprocessing.sequence import pad_sequences
+from transformers import Wav2Vec2Tokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor, Wav2Vec2CTCTokenizer
 
 
 class AudioDataset(Dataset):
@@ -25,9 +27,8 @@ class AudioDataset(Dataset):
         self.transcriptions = pd.read_csv(transcription_file, sep="\t")
         self.root_dir = root_dir
         self.MAX_LEN = MAX_LEN
-        self.tokenizer = Wav2Vec2CTCTokenizer("./vocab.json", unk_token="[UNK]", pad_token="[PAD]", word_delimiter_token="|")
-        self.feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0,
-                                                     do_normalize=True, return_attention_mask=True)
+        self.tokenizer = Wav2Vec2CTCTokenizer("./vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
+        self.feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0, do_normalize=True, return_attention_mask=True)
         self.processor = Wav2Vec2Processor(feature_extractor=self.feature_extractor, tokenizer=self.tokenizer)
 
 
@@ -41,7 +42,7 @@ class AudioDataset(Dataset):
         We need to uppercase the text, replace space with | and remove punctuation except '
         """
 
-        chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\“\%\‘\”\�]'
+        chars_to_ignore_regex = '[\,\?\.\!\…\;\:\"\“\%\‘\”\�]'
         text = re.sub(chars_to_ignore_regex, '', text).upper()
 
         # output word
@@ -68,15 +69,36 @@ class AudioDataset(Dataset):
         audio, _ = sf.read(audio_file_name_wav)
         os.remove(audio_file_name_wav)
 
-        #audio
-        batch = self.processor.pad(audio, padding=True, max_length=350000, sampling_rate=16000, return_tensors="pt")
-
-        #annotation
         annotation = self.clean_annotation(self.transcriptions.iloc[idx, 2])
-        with self.processor.as_target_processor():
-            labels_batch =self.processor.pad(annotation, padding=True, max_length=100, return_tensors="pt")
+        #print("annotation : ", annotation)
+        with open("vocab.json") as vocab_file:
+            vocab = json.load(vocab_file)
+        input_annotation = []
+        for char in annotation:
+            if char in list(vocab.keys()):
+                input_annotation.append(vocab[char])
+            else:
+                # <unk> character
+                input_annotation.append(3)
 
-        labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
-        batch["labels"] = labels
+        input_features = [{"input_values": audio}]
+        label_features = [{"input_ids": input_annotation}]
 
-        return batch
+        output_value = {"input_values": input_features[0]["input_values"], "labels": label_features[0]["input_ids"]}
+        if len(audio) > 250000:
+            return None
+        else:
+            return output_value
+
+        #audio
+        #batch = self.processor.pad(input_features, padding=True, return_tensors="pt")
+
+        #with self.processor.as_target_processor():
+        #    labels_batch = self.processor.pad(label_features, padding=True, return_tensors="pt")
+
+        #labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
+        #batch["labels"] = labels
+       
+        #output_batch = {"input_values": torch.squeeze(batch["input_values"], 0), "attention_mask": torch.squeeze(batch["attention_mask"], 0), "labels": batch["labels"]}
+        #output_batch = {"input_values": torch.squeeze(batch["input_values"], 0), "labels": torch.squeeze(batch["labels"], 0)}
+        #return output_batch

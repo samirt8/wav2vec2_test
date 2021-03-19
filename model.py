@@ -1,5 +1,5 @@
 from torch import nn
-from transformers import Wav2Vec2Tokenizer, Wav2Vec2ForCTC
+from transformers import Wav2Vec2Tokenizer, Wav2Vec2ForCTC, Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
 
 
 class ASR_CTC(nn.Module):
@@ -10,7 +10,7 @@ class ASR_CTC(nn.Module):
         #self.wav2Vec2ForCTC = Wav2Vec2ForCTC.from_pretrained('facebook/wav2vec2-base')
         #self.nb_labels = len(self.wav2Vec2Tokenizer.get_vocab())
         #self.wav2Vec2ForCTC = Wav2Vec2ForCTC.from_pretrained('facebook/wav2vec2-base')
-        self.tokenizer = Wav2Vec2CTCTokenizer("./vocab.json", unk_token="[UNK]", pad_token="[PAD]",
+        self.tokenizer = Wav2Vec2CTCTokenizer("./vocab.json", unk_token="<unk>", pad_token="<pad>",
                                                       word_delimiter_token="|")
         self.feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0,
                                                      do_normalize=True, return_attention_mask=True)

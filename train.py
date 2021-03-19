@@ -22,6 +22,21 @@ from model import ASR_CTC
 from data import AudioDataset
 
 
+def compute_metrics(pred):
+    pred_logits = pred.predictions
+    pred_ids = np.argmax(pred_logits, axis=-1)
+
+    pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
+
+    pred_str = processor.batch_decode(pred_ids)
+    # we do not want to group tokens when computing the metrics
+    label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
+
+    wer = wer_metric.compute(predictions=pred_str, references=label_str)
+
+    return {"wer": wer}
+
+
 def validate(model, criterion, epoch, epochs, validation_generator, save_path, train_loss,
              best_val_loss, best_model_path):
     val_losses = []
@@ -66,12 +81,8 @@ def validate(model, criterion, epoch, epochs, validation_generator, save_path, t
             "Val Loss: {:.4f}".format(val_loss)
             ))
 
-    #print("Epoch: {}/{}".format(epoch+1, epochs),
-    #      "Loss: {:.4f}".format(train_loss),
-    #      "Val Loss: {:.4f}".format(val_loss),
-    #      improved)
-
     return best_val_loss, best_model_path
+
 
 def train(model, optimizer, criterion, epochs, training_generator, validation_generator, save_path, best_val_loss=1e9):
 
@@ -159,23 +170,33 @@ if __name__ == '__main__':
     validation_generator = torch.utils.data.DataLoader(validation_set, **hyperparameters)
 
     print('LOAD TOKENIZER...')
-    tokenizer = Wav2Vec2Tokenizer("vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
+    #tokenizer = Wav2Vec2Tokenizer("vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
     #tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base")
-    nb_labels = len(tokenizer.get_vocab())
+    #nb_labels = len(tokenizer.get_vocab())
+    tokenizer = Wav2Vec2CTCTokenizer("vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
+    feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0,
+                                                      do_normalize=True, return_attention_mask=True)
+    processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
+    nb_labels = 37
 
     print('INITIALIZING MODEL...')
-    wav2vec2_model = nn.DataParallel(ASR_CTC().cuda())
+    #wav2vec2_model = nn.DataParallel(ASR_CTC().cuda())
+    wav2vec2_model = Wav2Vec2ForCTC.from_pretrained(
+    "facebook/wav2vec2-large-xlsr-53",
+    attention_dropout=0.1,
+    hidden_dropout=0.1,
+    feat_proj_dropout=0.0,
+    mask_time_prob=0.05,
+    layerdrop=0.1,
+    gradient_checkpointing=True,
+    ctc_loss_reduction="mean",
+    pad_token_id=processor.tokenizer.pad_token_id,
+    vocab_size=len(processor.tokenizer)
+)
 
     print('TRAINING ALL LAYER...')
-    #for name, param in wav2vec2_model.named_parameters():
-    #    if "encoder" in name:
-    #        param.requires_grad = False
-    #    elif "classifier" in name:
-    #        print("classifier : ", name)
-    #        param.requires_grad = True
-    #    else:
-    #        param.requires_grad = False
-    optimizer = optim.AdamW(wav2vec2_model.parameters(), lr=learning_rate)
-    criterion = nn.CTCLoss(reduction="mean", blank=4)
+    #optimizer = optim.AdamW(wav2vec2_model.parameters(), lr=learning_rate)
+    #criterion = nn.CTCLoss(reduction="mean", blank=4)
+    wav2vec2_model.freeze_feature_extractor()
     wav2vec2_model, optimizer, best_val_loss = train(wav2vec2_model, optimizer, criterion, epochs,
         training_generator, validation_generator, save_path)
