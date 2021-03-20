@@ -246,7 +246,7 @@ if __name__ == '__main__':
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
-    print('LOAD TOKENIZER...')
+    #print('LOAD TOKENIZER...')
     tokenizer = Wav2Vec2CTCTokenizer("vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
     feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0,
                                                       do_normalize=True, return_attention_mask=True)
@@ -266,6 +266,10 @@ if __name__ == '__main__':
     pad_token_id=processor.tokenizer.pad_token_id,
     vocab_size=len(processor.tokenizer)
 )
+
+    #wav2vec2_model = Wav2Vec2ForCTC.from_pretrained("/media/nas/samir-data/wav2vec2_models/checkpoint-18000")
+    #processor = Wav2Vec2Processor.from_pretrained("/media/nas/samir-data/wav2vec2_models/checkpoint-18000")
+
     wav2vec2_model.freeze_feature_extractor()
     wav2vec2_model_cuda = nn.DataParallel(wav2vec2_model.cuda())
 
@@ -284,7 +288,7 @@ if __name__ == '__main__':
     per_device_train_batch_size=1,
     gradient_accumulation_steps=2,
     evaluation_strategy="steps",
-    num_train_epochs=2,
+    num_train_epochs=10,
     fp16=True,
     save_steps=1000,
     eval_steps=1000,
