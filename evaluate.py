@@ -27,20 +27,23 @@ def compute_metrics(label, pred):
 
 with open("...", "r") as f:
     reference = f.read()
-    
-speech, _ = sf.read("...")
 
 model = Wav2Vec2ForCTC.from_pretrained("/media/nas/samir-data/wav2vec2_models/checkpoint-47000-benchmark")
 processor = Wav2Vec2Processor.from_pretrained("/media/nas/samir-data/wav2vec2_models/checkpoint-47000-benchmark")
 
-input_dict = processor(speech, return_tensors="pt", padding=True)
-logits = model(input_dict.input_values).logits
-pred_ids = torch.argmax(logits, dim=-1)[0]
+# initialize the prediction
+prediction = ""
+with SoundFile(file, 'r', 16000) as f:
+    for block in f.blocks(blocksize=50000, overlap=100):
+        input_dict = processor(block, return_tensors="pt", padding=True)
+        logits = model(input_dict.input_values).logits
+        pred_ids = torch.argmax(logits, dim=-1)[0]
+        prediction += processor.decode(pred_ids)
 
 print("Prediction:")
-print(processor.decode(pred_ids))
+print(prediction)
 
 print("\nReference:")
-print(common_voice_test_transcription["sentence"][0].lower())
+print(reference[0])
 
 #print("\nWer Metric:")
