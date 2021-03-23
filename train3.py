@@ -285,7 +285,7 @@ if __name__ == '__main__':
     training_args = TrainingArguments(
     output_dir=save_path,
     group_by_length=True,
-    per_device_train_batch_size=1,
+    per_device_train_batch_size=16,
     gradient_accumulation_steps=2,
     evaluation_strategy="steps",
     num_train_epochs=10,
