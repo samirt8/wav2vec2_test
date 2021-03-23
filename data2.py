@@ -62,14 +62,14 @@ class AudioDataset(Dataset):
                 output += "-"
             else:
                 output += char
-        return output
+        return re.sub(" +", " ", output)
 
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])
+        audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])[:-4]
         audio_file_name_mp3 = audio_file_name+".mp3"
         audio_file_name_wav = audio_file_name+".wav"
         # convert mp3 to wav
@@ -98,6 +98,7 @@ class AudioDataset(Dataset):
         if len(audio) > 300000:
             return None
         else:
+            print("labels : ", annotation)
             return output_value
 
         #audio

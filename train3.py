@@ -244,7 +244,7 @@ if __name__ == '__main__':
     validation_generator = torch.utils.data.DataLoader(validation_set, **hyperparameters)
 
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]="1"
+    os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
     #print('LOAD TOKENIZER...')
     tokenizer = Wav2Vec2CTCTokenizer("vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
@@ -267,8 +267,8 @@ if __name__ == '__main__':
     vocab_size=len(processor.tokenizer)
 )
 
-    #wav2vec2_model = Wav2Vec2ForCTC.from_pretrained("/media/nas/samir-data/wav2vec2_models/checkpoint-18000")
-    #processor = Wav2Vec2Processor.from_pretrained("/media/nas/samir-data/wav2vec2_models/checkpoint-18000")
+    wav2vec2_model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-large-xlsr-53")
+    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-xlsr-53")
 
     wav2vec2_model.freeze_feature_extractor()
     wav2vec2_model_cuda = nn.DataParallel(wav2vec2_model.cuda())
@@ -280,31 +280,31 @@ if __name__ == '__main__':
     data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
     print('TRAINING ALL LAYER...')
-    #wav2vec2_model_cuda, optimizer, best_val_loss = train(wav2vec2_model_cuda, optimizer, criterion, epochs, training_generator, validation_generator, save_path)
+    wav2vec2_model_cuda, optimizer, best_val_loss = train(wav2vec2_model_cuda, optimizer, criterion, epochs, training_generator, validation_generator, save_path)
 
-    training_args = TrainingArguments(
-    output_dir=save_path,
-    group_by_length=True,
-    per_device_train_batch_size=16,
-    gradient_accumulation_steps=2,
-    evaluation_strategy="steps",
-    num_train_epochs=10,
-    fp16=True,
-    save_steps=1000,
-    eval_steps=1000,
-    logging_steps=1000,
-    learning_rate=3e-4,
-    warmup_steps=500,
-    save_total_limit=2,
-)
+    #training_args = TrainingArguments(
+    #output_dir=save_path,
+    #group_by_length=True,
+    #per_device_train_batch_size=16,
+    #gradient_accumulation_steps=2,
+    #evaluation_strategy="steps",
+    #num_train_epochs=10,
+    #fp16=True,
+    #save_steps=1000,
+    #eval_steps=1000,
+    #logging_steps=1000,
+    #learning_rate=3e-4,
+    #warmup_steps=500,
+    #save_total_limit=2,
+#)
 
-    trainer = Trainer(
-    model=wav2vec2_model_cuda,
-    args=training_args,
-    compute_metrics=compute_metrics,
-    train_dataset=training_set,
-    eval_dataset=validation_set,
-    tokenizer=processor.feature_extractor,
-    data_collator=data_collator
-)
-trainer.train()
+ #   trainer = Trainer(
+ #   model=wav2vec2_model_cuda,
+ #   args=training_args,
+ #   compute_metrics=compute_metrics,
+ #   train_dataset=training_set,
+ #   eval_dataset=validation_set,
+ #   tokenizer=processor.feature_extractor,
+  #  data_collator=data_collator
+#)
+#trainer.train()
