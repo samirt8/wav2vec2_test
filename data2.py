@@ -42,14 +42,24 @@ class AudioDataset(Dataset):
         We need to uppercase the text, replace space with | and remove punctuation except '
         """
 
-        chars_to_ignore_regex = '[\,\?\.\!\…\;\:\"\“\%\‘\”\�]'
+        chars_to_ignore_regex = '[\?\=\…\!\)\ˢ\_\"\&\^\|\»\«\/\,\°\:\(\º\{\}\;\.]'
         text = re.sub(chars_to_ignore_regex, '', text).upper()
 
         # output word
         output = ""
         for char in text:
-            if char == " ":
-                output += "|"
+            if char == "Œ":
+                output += "OE"
+            elif char == "’":
+                output += "'"
+            elif char == "ÿ":
+                output += "Y"
+            elif char == "Ñ":
+                output += "N"
+            elif char == "Í":
+                output += "I"
+            elif char == "—":
+                output += "-"
             else:
                 output += char
         return output
@@ -71,7 +81,7 @@ class AudioDataset(Dataset):
 
         annotation = self.clean_annotation(self.transcriptions.iloc[idx, 2])
         #print("annotation : ", annotation)
-        with open("vocab.json") as vocab_file:
+        with open("vocab_v2.json") as vocab_file:
             vocab = json.load(vocab_file)
         input_annotation = []
         for char in annotation:
@@ -79,13 +89,13 @@ class AudioDataset(Dataset):
                 input_annotation.append(vocab[char])
             else:
                 # <unk> character
-                input_annotation.append(3)
+                input_annotation.append(1)
 
         input_features = [{"input_values": audio}]
         label_features = [{"input_ids": input_annotation}]
 
         output_value = {"input_values": input_features[0]["input_values"], "labels": label_features[0]["input_ids"]}
-        if len(audio) > 250000:
+        if len(audio) > 300000:
             return None
         else:
             return output_value
