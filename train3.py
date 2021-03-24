@@ -66,6 +66,8 @@ class DataCollatorCTCWithPadding:
         input_features = [{"input_values": feature["input_values"]} for feature in features]
         label_features = [{"input_ids": feature["labels"]} for feature in features]
 
+        print("input_features : ", input_features)
+
         if input_features is None:
             return None
 
@@ -221,14 +223,13 @@ if __name__ == '__main__':
 
     epochs = 1
     batch_size = 1
-    MAX_LEN = 32
     learning_rate = 5e-5
     hyperparameters = {
         'batch_size': batch_size,
         'shuffle': True
     }
     train_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr_v6.1/cv-corpus-6.1-2020-12-11/fr/clips"
-    train_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr_v6.1/cv-corpus-6.1-2020-12-11/fr/train.tsv"
+    train_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr_v6.1/cv-corpus-6.1-2020-12-11/fr/train1.tsv"
     validation_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
     validation_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/dev1.tsv"
     save_path = "/media/nas/samir-data/wav2vec2_models"
@@ -237,21 +238,21 @@ if __name__ == '__main__':
         json.dump(hyperparameters, f)
 
     #Generators
-    training_set = AudioDataset(train_annotation_file, train_data_folder, MAX_LEN)
+    training_set = AudioDataset(train_annotation_file, train_data_folder)
     training_generator = torch.utils.data.DataLoader(training_set, **hyperparameters)
 
-    validation_set = AudioDataset(validation_annotation_file, validation_data_folder, MAX_LEN)
+    validation_set = AudioDataset(validation_annotation_file, validation_data_folder)
     validation_generator = torch.utils.data.DataLoader(validation_set, **hyperparameters)
 
     os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
     #print('LOAD TOKENIZER...')
-    tokenizer = Wav2Vec2CTCTokenizer("vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
+    tokenizer = Wav2Vec2CTCTokenizer("vocab_v2.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
     feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0,
                                                       do_normalize=True, return_attention_mask=True)
     processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
-    nb_labels = 36
+    nb_labels = 45
 
     print('INITIALIZING MODEL...')
     wav2vec2_model = Wav2Vec2ForCTC.from_pretrained(
@@ -267,44 +268,44 @@ if __name__ == '__main__':
     vocab_size=len(processor.tokenizer)
 )
 
-    wav2vec2_model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-large-xlsr-53")
-    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-xlsr-53")
+    #processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-xlsr-53")
 
     wav2vec2_model.freeze_feature_extractor()
     wav2vec2_model_cuda = nn.DataParallel(wav2vec2_model.cuda())
 
-    optimizer = optim.AdamW(wav2vec2_model_cuda.parameters(), lr=learning_rate)
-    criterion = nn.CTCLoss(reduction="mean", blank=0)
+    #optimizer = optim.AdamW(wav2vec2_model_cuda.parameters(), lr=learning_rate)
+    #criterion = nn.CTCLoss(reduction="mean", blank=0)
 
     wer_metric = load_metric("wer")
     data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
     print('TRAINING ALL LAYER...')
-    wav2vec2_model_cuda, optimizer, best_val_loss = train(wav2vec2_model_cuda, optimizer, criterion, epochs, training_generator, validation_generator, save_path)
+    #wav2vec2_model_cuda, optimizer, best_val_loss = train(wav2vec2_model_cuda, optimizer, criterion, epochs, training_generator, validation_generator, save_path)
 
-    #training_args = TrainingArguments(
-    #output_dir=save_path,
-    #group_by_length=True,
-    #per_device_train_batch_size=16,
-    #gradient_accumulation_steps=2,
-    #evaluation_strategy="steps",
-    #num_train_epochs=10,
-    #fp16=True,
-    #save_steps=1000,
-    #eval_steps=1000,
-    #logging_steps=1000,
-    #learning_rate=3e-4,
-    #warmup_steps=500,
-    #save_total_limit=2,
-#)
+    training_args = TrainingArguments(
+    output_dir=save_path,
+    group_by_length=True,
+    per_device_train_batch_size=16,
+    gradient_accumulation_steps=2,
+    evaluation_strategy="steps",
+    num_train_epochs=10,
+    fp16=True,
+    save_steps=1000,
+    eval_steps=1000,
+    logging_steps=1000,
+    learning_rate=3e-4,
+    warmup_steps=500,
+    save_total_limit=2,
+)
 
- #   trainer = Trainer(
- #   model=wav2vec2_model_cuda,
- #   args=training_args,
- #   compute_metrics=compute_metrics,
- #   train_dataset=training_set,
- #   eval_dataset=validation_set,
- #   tokenizer=processor.feature_extractor,
-  #  data_collator=data_collator
-#)
-#trainer.train()
+    trainer = Trainer(
+    model=wav2vec2_model_cuda,
+    args=training_args,
+    compute_metrics=compute_metrics,
+    train_dataset=training_set,
+    eval_dataset=validation_set,
+    tokenizer=processor.feature_extractor,
+    data_collator=data_collator
+)
+
+trainer.train()

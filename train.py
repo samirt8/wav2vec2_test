@@ -9,7 +9,7 @@ from datetime import datetime
 import torch
 from torch import nn, optim
 import torch.nn.functional as F
-from transformers import Wav2Vec2Tokenizer, Wav2Vec2ForCTC
+from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2ForCTC, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
 
 from sklearn import metrics  # https://scikit-learn.org/stable/modules/classes.html#module-sklearn.metrics
 from sklearn.exceptions import UndefinedMetricWarning
@@ -18,7 +18,10 @@ import warnings
 warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
 torch.autograd.detect_anomaly()
 
-from model import ASR_CTC
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Union
+from datasets import load_metric
+
 from data import AudioDataset
 
 
@@ -37,18 +40,41 @@ def compute_metrics(pred):
     return {"wer": wer}
 
 
-def validate(model, criterion, epoch, epochs, validation_generator, save_path, train_loss,
+def collate_fn(features):
+    # split inputs and labels since they have to be of different lenghts and need
+    # different padding methods
+    input_features = [{"input_values": feature["input_values"]} for feature in features]
+    label_features = [{"input_ids": feature["labels"]} for feature in features]
+
+    batch = processor.pad(
+        input_features,
+        padding=True,
+        return_tensors="pt",
+        )
+    with processor.as_target_processor():
+        labels_batch = processor.pad(
+            label_features,
+            padding=True,
+            return_tensors="pt"
+        )
+
+    # replace padding with -100 to ignore loss correctly
+    labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
+
+    batch["labels"] = labels
+
+    return batch
+
+
+def validate(model, epoch, epochs, validation_generator, save_path, train_loss,
              best_val_loss, best_model_path):
     val_losses = []
 
-    for inputs in tqdm(validation_generator, total=len(validation_generator)):
+    for inputs in validation_generator:
         with torch.no_grad():
-            inputs, labels = inputs["audio"].cuda(), inputs["annotation"].cuda()
-            output = model(inputs)
-            output1 = output.view(-1, batch_size, nb_labels)
-            output_lengths = torch.full(size=(batch_size,), fill_value=output1.shape[0], dtype=torch.long)
-            labels_lengths = torch.randint(low=MAX_LEN-5, high=MAX_LEN, size=(batch_size,), dtype=torch.long)
-            val_loss = criterion(output1, labels, output_lengths, labels_lengths)
+            inputs, labels = inputs["input_values"].to(device="cuda", dtype=torch.float), inputs["labels"].to(device="cuda", dtype=torch.float)
+            output = model(inputs, labels=labels)
+            val_loss = model.loss
             val_losses.append(val_loss.cpu().data.numpy())
 
             y_pred = torch.argmax(output, dim=-1).cpu().data.numpy()
@@ -84,7 +110,7 @@ def validate(model, criterion, epoch, epochs, validation_generator, save_path, t
     return best_val_loss, best_model_path
 
 
-def train(model, optimizer, criterion, epochs, training_generator, validation_generator, save_path, best_val_loss=1e9):
+def train(model, optimizer, epochs, training_generator, validation_generator, save_path, best_val_loss=1e9):
 
     print_every = len(training_generator)
     best_model_path = None
@@ -95,23 +121,21 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
 
         counter = 1
 
-        for inputs in training_generator:
+        for batch in training_generator:
+            inputs, attentions, labels = batch["input_values"].to(device="cuda"), batch["attention_mask"].to(device="cuda"), batch["labels"].to(device="cuda")
 
-            inputs, labels = inputs["audio"].cuda(), inputs["annotation"].cuda()
             inputs.requires_grad = False
+            attentions.requires_grad = False
             labels.requires_grad = False
-            output = model(inputs)
+            output = model(inputs, attention_mask=attentions, labels=labels)
 
-            y_pred = torch.argmax(output, dim=-1).cpu().data.numpy()
+            y_pred = torch.argmax(output.logits, dim=-1).cpu().data.numpy()
             y_true = labels.cpu().data.numpy()
 
             print("y_pred : ", tokenizer.batch_decode(y_pred))
             print("y_true : ", tokenizer.batch_decode(y_true))
 
-            output1 = output.view(-1, batch_size, nb_labels)
-            output_lengths = torch.full(size=(batch_size,), fill_value=output1.shape[0], dtype=torch.long)
-            labels_lengths = torch.randint(low=y_true.shape[0]-5, high=y_true.shape[0], size=(batch_size,), dtype=torch.long)
-            loss = criterion(output1, labels, output_lengths, labels_lengths)
+            loss = output.loss
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -124,7 +148,7 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
 
                 pbar.close()
                 model.eval()
-                best_val_loss, best_model_path = validate(model, criterion, e, epochs, validation_generator,
+                best_val_loss, best_model_path = validate(model, e, epochs, validation_generator,
                     save_path, train_loss, best_val_loss, best_model_path)
                 model.train()
                 pbar = tqdm(total=print_every)
@@ -132,8 +156,8 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
 
         pbar.close()
         model.eval()
-        best_val_loss, best_model_path = validate(model, criterion, e, epochs, validation_generator,
-            save_path, train_loss, best_val_loss, best_model_path)
+        best_val_loss, best_model_path = validate(model, e, epochs, validation_generator, 
+        save_path, train_loss, best_val_loss, best_model_path)
         model.train()
         if e < epochs-1:
             pbar = tqdm(total=print_every)
@@ -146,41 +170,34 @@ def train(model, optimizer, criterion, epochs, training_generator, validation_ge
 if __name__ == '__main__':
 
     epochs = 1
-    batch_size = 1
-    MAX_LEN = 32
-    learning_rate = 5e-4
+    batch_size = 4
+    learning_rate = 4e-5
     hyperparameters = {
         'batch_size': batch_size,
-        'shuffle': True
+        'shuffle': True,
+        'collate_fn': collate_fn
     }
     train_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
     train_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/train.tsv"
     validation_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
     validation_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/dev.tsv"
     save_path = "/media/nas/samir-data/wav2vec2_models"
-    #os.mkdir(save_path)
-    with open(save_path+'/hyperparameters.json', 'w') as f:
-        json.dump(hyperparameters, f)
-
-    #Generators
-    training_set = AudioDataset(train_annotation_file, train_data_folder, MAX_LEN)
-    training_generator = torch.utils.data.DataLoader(training_set, **hyperparameters)
-
-    validation_set = AudioDataset(validation_annotation_file, validation_data_folder, MAX_LEN)
-    validation_generator = torch.utils.data.DataLoader(validation_set, **hyperparameters)
 
     print('LOAD TOKENIZER...')
-    #tokenizer = Wav2Vec2Tokenizer("vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
-    #tokenizer = Wav2Vec2Tokenizer.from_pretrained("facebook/wav2vec2-base")
-    #nb_labels = len(tokenizer.get_vocab())
-    tokenizer = Wav2Vec2CTCTokenizer("vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
+    tokenizer = Wav2Vec2CTCTokenizer("vocab_v2.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
     feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0,
                                                       do_normalize=True, return_attention_mask=True)
     processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
-    nb_labels = 37
+    nb_labels = len(tokenizer.get_vocab())
+
+    #Generators
+    training_set = AudioDataset(train_annotation_file, train_data_folder)
+    training_generator = torch.utils.data.DataLoader(training_set, **hyperparameters)
+
+    validation_set = AudioDataset(validation_annotation_file, validation_data_folder)
+    validation_generator = torch.utils.data.DataLoader(validation_set, **hyperparameters)
 
     print('INITIALIZING MODEL...')
-    #wav2vec2_model = nn.DataParallel(ASR_CTC().cuda())
     wav2vec2_model = Wav2Vec2ForCTC.from_pretrained(
     "facebook/wav2vec2-large-xlsr-53",
     attention_dropout=0.1,
@@ -192,11 +209,10 @@ if __name__ == '__main__':
     ctc_loss_reduction="mean",
     pad_token_id=processor.tokenizer.pad_token_id,
     vocab_size=len(processor.tokenizer)
-)
+).cuda()
 
     print('TRAINING ALL LAYER...')
-    #optimizer = optim.AdamW(wav2vec2_model.parameters(), lr=learning_rate)
-    #criterion = nn.CTCLoss(reduction="mean", blank=4)
+    optimizer = optim.AdamW(wav2vec2_model.parameters(), lr=learning_rate)
     wav2vec2_model.freeze_feature_extractor()
-    wav2vec2_model, optimizer, best_val_loss = train(wav2vec2_model, optimizer, criterion, epochs,
+    wav2vec2_model, optimizer, best_val_loss = train(wav2vec2_model, optimizer, epochs,
         training_generator, validation_generator, save_path)
