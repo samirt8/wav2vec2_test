@@ -81,7 +81,7 @@ class AudioDataset(Dataset):
         os.remove(audio_file_name_wav)
 
         annotation = self.clean_annotation(self.transcriptions.iloc[idx, 2])
-        #print("annotation : ", annotation)
+        print("annotation : ", annotation)
         with open("vocab_v2.json") as vocab_file:
             vocab = json.load(vocab_file)
         input_annotation = []

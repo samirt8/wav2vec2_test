@@ -66,48 +66,51 @@ def collate_fn(features):
     return batch
 
 
-def validate(model, epoch, epochs, validation_generator, save_path, train_loss,
+def validate(model, epoch, validation_generator, save_path, train_loss,
              best_val_loss, best_model_path):
     val_losses = []
+    wers = []
 
-    for inputs in validation_generator:
+    for batch in validation_generator:
         with torch.no_grad():
-            inputs, labels = inputs["input_values"].to(device="cuda", dtype=torch.float), inputs["labels"].to(device="cuda", dtype=torch.float)
-            output = model(inputs, labels=labels)
-            val_loss = model.loss
-            val_losses.append(val_loss.cpu().data.numpy())
+            inputs, attentions, labels = batch["input_values"].to(device="cuda"), batch["attention_mask"].to(device="cuda"), batch["labels"].to(device="cuda")
+            output = model(inputs, attention_mask=attentions, labels=labels)
 
-            y_pred = torch.argmax(output, dim=-1).cpu().data.numpy()
+            y_pred = torch.argmax(output.logits, dim=-1).cpu().data.numpy()
             y_true = labels.cpu().data.numpy()
 
             print("y_pred : ", tokenizer.batch_decode(y_pred))
             print("y_true : ", tokenizer.batch_decode(y_true))
 
-    val_loss = np.mean(val_losses)
+            val_loss = model.loss
+            val_losses.append(val_loss.cpu().data.numpy())
+            wers.append(compute_metrics(output))
 
-    improved = ''
+    val_loss = np.mean(val_losses)
+    wer = np.mean([d.values() for d in wers])
 
     model_path = save_path+'/model'
     torch.save(model.state_dict(), model_path)
     if val_loss < best_val_loss:
-        improved = '*'
         best_val_loss = val_loss
+        best_wer = wer
         best_model_path = model_path
 
     progress_path = save_path+'/progress.csv'
     if not os.path.isfile(progress_path):
         with open(progress_path, 'w') as f:
-            f.write('time;epoch;training loss;loss;accuracy;''\n')
+            f.write('time;epoch;training loss;validation loss;WER;''\n')
 
     with open(progress_path, 'a') as f:
-        f.write('{};{};{:.4f};{:.4f}\n'.format(
+        f.write('{};{};{:.4f};{:.4f};{.4f}\n'.format(
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             epoch+1,
             "Loss: {:.4f}".format(train_loss),
-            "Val Loss: {:.4f}".format(val_loss)
+            "Val Loss: {:.4f}".format(val_loss),
+            "WER: {:.4f}".format(wer)
             ))
 
-    return best_val_loss, best_model_path
+    return best_val_loss, best_wer, best_model_path
 
 
 def train(model, optimizer, epochs, training_generator, validation_generator, save_path, best_val_loss=1e9):
@@ -148,7 +151,7 @@ def train(model, optimizer, epochs, training_generator, validation_generator, sa
 
                 pbar.close()
                 model.eval()
-                best_val_loss, best_model_path = validate(model, e, epochs, validation_generator,
+                best_val_loss, best_model_path, best_wer = validate(model, e, validation_generator,
                     save_path, train_loss, best_val_loss, best_model_path)
                 model.train()
                 pbar = tqdm(total=print_every)
@@ -156,7 +159,7 @@ def train(model, optimizer, epochs, training_generator, validation_generator, sa
 
         pbar.close()
         model.eval()
-        best_val_loss, best_model_path = validate(model, e, epochs, validation_generator, 
+        best_val_loss, best_model_path, best_wer = validate(model, e, validation_generator,
         save_path, train_loss, best_val_loss, best_model_path)
         model.train()
         if e < epochs-1:
@@ -165,7 +168,7 @@ def train(model, optimizer, epochs, training_generator, validation_generator, sa
     model.load_state_dict(torch.load(best_model_path))
     model.eval()
 
-    return model, optimizer, best_val_loss
+    return model, optimizer, best_val_loss, best_wer
 
 if __name__ == '__main__':
 
