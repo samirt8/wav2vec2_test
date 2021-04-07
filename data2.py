@@ -25,7 +25,7 @@ class AudioDataset(Dataset):
         """
         self.transcriptions = pd.read_csv(transcription_file, sep="\t")
         self.root_dir = root_dir
-        self.tokenizer = Wav2Vec2CTCTokenizer("./vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
+        self.tokenizer = Wav2Vec2CTCTokenizer("./vocab_v2.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
         self.feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1, sampling_rate=16000, padding_value=0.0, do_normalize=True, return_attention_mask=True)
         self.processor = Wav2Vec2Processor(feature_extractor=self.feature_extractor, tokenizer=self.tokenizer)
 
@@ -69,8 +69,8 @@ class AudioDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        #audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])[:-4]
-        audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])
+        audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])[:-4]
+        #audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])
         audio_file_name_mp3 = audio_file_name+".mp3"
         audio_file_name_wav = audio_file_name+".wav"
         # convert mp3 to wav

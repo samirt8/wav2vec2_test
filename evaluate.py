@@ -46,28 +46,17 @@ dir_path="/media/nas/samir-data/asr_transformers"
 #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 #os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
-test_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
-test_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/test1.tsv"
+test_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr_v6.1/cv-corpus-6.1-2020-12-11/fr/clips"
+test_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr_v6.1/cv-corpus-6.1-2020-12-11/fr/test.tsv"
 test_set = AudioDataset(test_annotation_file, test_data_folder, MAX_LEN)
 test_generator = torch.utils.data.DataLoader(test_set, batch_size=1)
 
-processor = Wav2Vec2Processor.from_pretrained("/media/nas/samir-data/wav2vec2_models/checkpoint-94000")
-tokenizer = Wav2Vec2CTCTokenizer.from_pretrained("/media/nas/samir-data/wav2vec2_models/checkpoint-94000")
+processor = Wav2Vec2Processor.from_pretrained("/media/nas/samir-data/wav2vec2_models/wav2vec2_trained_on_commonvoice_v1_fr")
+tokenizer = Wav2Vec2CTCTokenizer.from_pretrained("/media/nas/samir-data/wav2vec2_models/wav2vec2_trained_on_commonvoice_v1_fr")
 
-model = Wav2Vec2ForCTC.from_pretrained(
-    "/media/nas/samir-data/wav2vec2_models/checkpoint-94000",
-    attention_dropout=0.1,
-    hidden_dropout=0.1,
-    feat_proj_dropout=0.0,
-    mask_time_prob=0.05,
-    layerdrop=0.1,
-    gradient_checkpointing=True,
-    ctc_loss_reduction="mean",
-    pad_token_id=processor.tokenizer.pad_token_id,
-    vocab_size=36
-)
+model = Wav2Vec2ForCTC.from_pretrained("/media/nas/samir-data/wav2vec2_models/wav2vec2_trained_on_commonvoice_v1_fr")
 
-checkpoint = torch.load("/media/nas/samir-data/wav2vec2_models/checkpoint-94000/pytorch_model.bin", map_location=lambda storage, loc: storage)
+checkpoint = torch.load("/media/nas/samir-data/wav2vec2_models/wav2vec2_trained_on_commonvoice_v1_fr/pytorch_model.bin", map_location=lambda storage, loc: storage)
 
 from collections import OrderedDict
 new_checkpoint = OrderedDict()
@@ -103,5 +92,5 @@ for audio_file in test_generator:
         print(reference)
 
         print("\n")
-        
+
 print("\nWer Metric: ", wer_metric.compute(predictions=predictions, references=references))

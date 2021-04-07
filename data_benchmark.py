@@ -25,7 +25,7 @@ class AudioDataset(Dataset):
         """
         self.transcriptions = pd.read_csv(transcription_file, sep="\t")
         self.root_dir = root_dir
-        self.tokenizer = Wav2Vec2CTCTokenizer("./vocab_v2.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token="|")
+
 
     def __len__(self):
         return len(self.transcriptions)
@@ -43,14 +43,8 @@ class AudioDataset(Dataset):
         # output word
         output = ""
         for char in text:
-            if char == "Œ":
-                output += "OE"
-            elif char == "’":
+            if char == "’":
                 output += "'"
-            elif char == "ÿ":
-                output += "Y"
-            elif char == "Ñ":
-                output += "N"
             elif char == "Í":
                 output += "I"
             elif char == "—":
@@ -66,8 +60,8 @@ class AudioDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        #audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])[:-4]
-        audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])
+        audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])[:-4]
+        #audio_file_name = os.path.join(self.root_dir, self.transcriptions.iloc[idx, 1])
         audio_file_name_mp3 = audio_file_name+".mp3"
         audio_file_name_wav = audio_file_name+".wav"
         # convert mp3 to wav
@@ -78,6 +72,7 @@ class AudioDataset(Dataset):
         os.remove(audio_file_name_wav)
 
         annotation = self.clean_annotation(self.transcriptions.iloc[idx, 2])
+        #change vocab file depending on the vocab you use
         with open("vocab_v2.json") as vocab_file:
             vocab = json.load(vocab_file)
         input_annotation = []
@@ -92,7 +87,4 @@ class AudioDataset(Dataset):
         label_features = {"input_ids": torch.tensor(input_annotation)}
 
         output_value = {"input_values": input_features["input_values"], "labels": label_features["input_ids"]}
-        if len(audio) > 300000:
-            return None
-        else:
-            return output_value
+        return output_value

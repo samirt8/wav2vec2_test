@@ -25,18 +25,8 @@ from datasets import load_metric
 from data import AudioDataset
 
 
-def compute_metrics(pred):
-    pred_logits = pred.predictions
-    pred_ids = np.argmax(pred_logits, axis=-1)
-
-    pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-
-    pred_str = processor.batch_decode(pred_ids)
-    # we do not want to group tokens when computing the metrics
-    label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
-
-    wer = wer_metric.compute(predictions=pred_str, references=label_str)
-
+def compute_metrics(y_pred, y_true):
+    wer = wer_metric.compute(predictions=y_pred, references=y_true)
     return {"wer": wer}
 
 
@@ -82,33 +72,19 @@ def validate(model, epoch, validation_generator, save_path, train_loss,
             print("y_pred : ", tokenizer.batch_decode(y_pred))
             print("y_true : ", tokenizer.batch_decode(y_true))
 
-            val_loss = model.loss
+            val_loss = output.loss
             val_losses.append(val_loss.cpu().data.numpy())
-            wers.append(compute_metrics(output))
+            wers.append(compute_metrics(tokenizer.batch_decode(y_pred), tokenizer.batch_decode(y_true)))
 
     val_loss = np.mean(val_losses)
-    wer = np.mean([d.values() for d in wers])
+    wer = np.mean([list(d.values()) for d in wers])
 
-    model_path = save_path+'/model'
+    model_path = save_path+'/model_wer'+str(wer)
     torch.save(model.state_dict(), model_path)
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         best_wer = wer
         best_model_path = model_path
-
-    progress_path = save_path+'/progress.csv'
-    if not os.path.isfile(progress_path):
-        with open(progress_path, 'w') as f:
-            f.write('time;epoch;training loss;validation loss;WER;''\n')
-
-    with open(progress_path, 'a') as f:
-        f.write('{};{};{:.4f};{:.4f};{.4f}\n'.format(
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            epoch+1,
-            "Loss: {:.4f}".format(train_loss),
-            "Val Loss: {:.4f}".format(val_loss),
-            "WER: {:.4f}".format(wer)
-            ))
 
     return best_val_loss, best_wer, best_model_path
 
@@ -131,6 +107,8 @@ def train(model, optimizer, epochs, training_generator, validation_generator, sa
             attentions.requires_grad = False
             labels.requires_grad = False
             output = model(inputs, attention_mask=attentions, labels=labels)
+
+            labels[labels == -100] = processor.tokenizer.pad_token_id
 
             y_pred = torch.argmax(output.logits, dim=-1).cpu().data.numpy()
             y_true = labels.cpu().data.numpy()
@@ -165,8 +143,8 @@ def train(model, optimizer, epochs, training_generator, validation_generator, sa
         if e < epochs-1:
             pbar = tqdm(total=print_every)
 
-    model.load_state_dict(torch.load(best_model_path))
-    model.eval()
+    #model.load_state_dict(torch.load(best_model_path))
+    #model.eval()
 
     return model, optimizer, best_val_loss, best_wer
 
@@ -183,7 +161,7 @@ if __name__ == '__main__':
     train_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
     train_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/train.tsv"
     validation_data_folder = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/clips"
-    validation_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/dev.tsv"
+    validation_annotation_file = "/media/nas/CORPUS_FINAL/Corpus_audio/Corpus_FR/COMMONVOICE/common-voice-fr/test1.tsv"
     save_path = "/media/nas/samir-data/wav2vec2_models"
 
     print('LOAD TOKENIZER...')
@@ -192,6 +170,11 @@ if __name__ == '__main__':
                                                       do_normalize=True, return_attention_mask=True)
     processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
     nb_labels = len(tokenizer.get_vocab())
+
+    #WER Metric
+    wer_metric = load_metric("wer")
+    #Initialize best_wer
+    best_wer=1.0
 
     #Generators
     training_set = AudioDataset(train_annotation_file, train_data_folder)
@@ -217,5 +200,5 @@ if __name__ == '__main__':
     print('TRAINING ALL LAYER...')
     optimizer = optim.AdamW(wav2vec2_model.parameters(), lr=learning_rate)
     wav2vec2_model.freeze_feature_extractor()
-    wav2vec2_model, optimizer, best_val_loss = train(wav2vec2_model, optimizer, epochs,
+    wav2vec2_model, optimizer, best_val_loss, best_wer = train(wav2vec2_model, optimizer, epochs,
         training_generator, validation_generator, save_path)
